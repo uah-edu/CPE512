@@ -86,38 +86,53 @@ void init_temp(void) {
 //                                       using ghost points
 // 
 void compute_temp() {
-    MPI_Status status;
-    MPI_Request send_req[4], recv_req[4];
+    MPI_Status send_status[2], recv_status[2];
+    MPI_Request send_req[2], recv_req[2];
     #define Temp_buf(x,y) temp_buf[(x)*total_cols+y] // *(temp_buf+x*total_cols+y)
     double *temp_buf = new double[total_rows_on_proc*total_cols];
 
-    int buffer_size = total_cols * sizeof(double);
-    // Attach the buffer to MPI
-    MPI_Buffer_attach(temp_buf, buffer_size);
 
     // communication phase using Blocking Receives
+
     // to be replaced with other communication methods in assignment
     // Begin of communication phase
     for (int i=0;i<num_iterations;i++) {
+        // Initialize non-blocking sends and receives for up and down neighbors
         if (rank < numprocs - 1) {
-            MPI_Bsend(&temp[active_rows_on_proc * total_cols], total_cols, MPI_DOUBLE, up_pr, 123, MPI_COMM_WORLD);
-            MPI_Recv(&temp[(active_rows_on_proc + 1) * total_cols], total_cols, MPI_DOUBLE, up_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            MPI_Isend(&temp[active_rows_on_proc*total_cols], total_cols, MPI_DOUBLE, up_pr, 123, MPI_COMM_WORLD, &send_req[0]);
+            MPI_Irecv(&temp[(active_rows_on_proc + 1)*total_cols], total_cols, MPI_DOUBLE, up_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &recv_req[0]);
         }
 
         if (rank > 0) {
-            MPI_Bsend(&temp[total_cols], total_cols, MPI_DOUBLE, down_pr, 123, MPI_COMM_WORLD);
-            MPI_Recv(&temp[0], total_cols, MPI_DOUBLE, down_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            MPI_Isend(&temp[total_cols], total_cols, MPI_DOUBLE, down_pr, 123, MPI_COMM_WORLD, &send_req[1]);
+            MPI_Irecv(&temp[0], total_cols, MPI_DOUBLE, down_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &recv_req[1]);
         }
 
-        // Local stenciled computation phase
-        for (int j = 1; j <= active_rows_on_proc; j++) {
-            for (int k = 1; k <= total_cols - 2; k++) {
-                Temp(j, k) = 0.25 * (Temp(j - 1, k) + Temp(j + 1, k) + Temp(j, k - 1) + Temp(j, k + 1));
+        // Wait for completion of non-blocking sends and receives
+        if (rank < numprocs - 1) {
+            MPI_Wait(&send_req[0], &send_status[0]);
+            MPI_Wait(&recv_req[0], &recv_status[0]);
+        }
+
+        if (rank > 0) {
+            MPI_Wait(&send_req[1], &send_status[1]);
+            MPI_Wait(&recv_req[1], &recv_status[1]);
+        }
+        // End of communication phase
+
+        // local stenciled computation phase 
+        for (int j=1;j<=active_rows_on_proc;j++) {
+            for (int k=1;k<=total_cols-2;k++) {
+                Temp_buf(j,k)=0.25*(Temp(j-1,k)+Temp(j+1,k)+
+                        Temp(j,k-1)+Temp(j,k+1));
+            }
+        }
+        for (int j=1;j<=active_rows_on_proc;j++) {
+            for (int k=1;k<=total_cols-2;k++) { 
+                Temp (j,k)=Temp_buf(j,k);
             }
         }
     }
-    // Detach the buffer after communication
-    MPI_Buffer_detach(&temp_buf, &buffer_size);
     delete temp_buf;
 }
 // routine to display temperature values at each point including the 
@@ -307,11 +322,11 @@ int main (int argc, char *argv[]){
 
     // time interval calculation associated with MPI process
     time = MPI_Wtime()-time; // new time = end time - start time
-
+    print_temp();
     // taking the maximum of the individual MPI process times
     double parallel_time;
     MPI_Reduce(&time,&parallel_time,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
-    print_temp();
+
     // print temp array output
     if (argc!=4) {
         print_temp();
