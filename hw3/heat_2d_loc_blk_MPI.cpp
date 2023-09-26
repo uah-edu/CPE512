@@ -86,8 +86,7 @@ void init_temp(void) {
 //                                       using ghost points
 // 
 void compute_temp() {
-    MPI_Status send_status[2], recv_status[2];
-    MPI_Request send_req[2], recv_req[2];
+    MPI_Status status;
     #define Temp_buf(x,y) temp_buf[(x)*total_cols+y] // *(temp_buf+x*total_cols+y)
     double *temp_buf = new double[total_rows_on_proc*total_cols];
 
@@ -97,26 +96,18 @@ void compute_temp() {
     // to be replaced with other communication methods in assignment
     // Begin of communication phase
     for (int i=0;i<num_iterations;i++) {
-        // Initialize non-blocking sends and receives for up and down neighbors
+        // Send data to the up neighbor and receive from it
         if (rank < numprocs - 1) {
-            MPI_Isend(&temp[active_rows_on_proc*total_cols], total_cols, MPI_DOUBLE, up_pr, 123, MPI_COMM_WORLD, &send_req[0]);
-            MPI_Irecv(&temp[(active_rows_on_proc + 1)*total_cols], total_cols, MPI_DOUBLE, up_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &recv_req[0]);
+            MPI_Send(&temp[active_rows_on_proc*total_cols], total_cols,
+                     MPI_DOUBLE, up_pr, 123, MPI_COMM_WORLD);
+            MPI_Recv(&temp[(active_rows_on_proc+1)*total_cols],
+                     total_cols, MPI_DOUBLE, up_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         }
 
+        // Send data to the down neighbor and receive from it
         if (rank > 0) {
-            MPI_Isend(&temp[total_cols], total_cols, MPI_DOUBLE, down_pr, 123, MPI_COMM_WORLD, &send_req[1]);
-            MPI_Irecv(&temp[0], total_cols, MPI_DOUBLE, down_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &recv_req[1]);
-        }
-
-        // Wait for completion of non-blocking sends and receives
-        if (rank < numprocs - 1) {
-            MPI_Wait(&send_req[0], &send_status[0]);
-            MPI_Wait(&recv_req[0], &recv_status[0]);
-        }
-
-        if (rank > 0) {
-            MPI_Wait(&send_req[1], &send_status[1]);
-            MPI_Wait(&recv_req[1], &recv_status[1]);
+            MPI_Send(&temp[total_cols], total_cols, MPI_DOUBLE, down_pr, 123, MPI_COMM_WORLD);
+            MPI_Recv(&temp[0], total_cols, MPI_DOUBLE, down_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         }
         // End of communication phase
 
