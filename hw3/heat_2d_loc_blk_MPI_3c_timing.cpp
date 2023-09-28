@@ -90,25 +90,31 @@ void compute_temp() {
     #define Temp_buf(x,y) temp_buf[(x)*total_cols+y] // *(temp_buf+x*total_cols+y)
     double *temp_buf = new double[total_rows_on_proc*total_cols];
 
+    double time_comm = 0.0;
     // communication phase using Blocking Receives
 
     // to be replaced with other communication methods in assignment
     // Begin of communication phase
     for (int i=0;i<num_iterations;i++) {
+        time_comm = MPI_Wtime();
         // Send data to the up neighbor and receive from it
         if (rank < numprocs - 1) {
-            // MPI_Send(&temp[active_rows_on_proc*total_cols], total_cols, MPI_DOUBLE, up_pr, 123, MPI_COMM_WORLD);
-            MPI_Ssend(&temp[active_rows_on_proc*total_cols], total_cols, MPI_DOUBLE, up_pr, 123, MPI_COMM_WORLD);
-            MPI_Recv(&temp[(active_rows_on_proc+1)*total_cols], total_cols, MPI_DOUBLE, up_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            MPI_Send(&temp[active_rows_on_proc*total_cols], total_cols,
+                     MPI_DOUBLE, up_pr, 123, MPI_COMM_WORLD);
+            MPI_Recv(&temp[(active_rows_on_proc+1)*total_cols],
+                     total_cols, MPI_DOUBLE, up_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         }
 
         // Send data to the down neighbor and receive from it
         if (rank > 0) {
-            // MPI_Send(&temp[total_cols], total_cols, MPI_DOUBLE, down_pr, 123, MPI_COMM_WORLD);
+            MPI_Send(&temp[total_cols], total_cols, MPI_DOUBLE, down_pr, 123, MPI_COMM_WORLD);
             MPI_Recv(&temp[0], total_cols, MPI_DOUBLE, down_pr, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            MPI_Ssend(&temp[total_cols], total_cols, MPI_DOUBLE, down_pr, 123, MPI_COMM_WORLD);
-            
         }
+        time_comm = MPI_Wtime() - time_comm;
+        // Report/print the sum `time_comm` among all processors.
+        double parallel_time_comm;
+        MPI_Reduce(&time_comm,&parallel_time_comm,1,MPI_DOUBLE,MPI_SUM ,0,MPI_COMM_WORLD);
+
         // End of communication phase
 
         // local stenciled computation phase 
@@ -313,12 +319,10 @@ int main (int argc, char *argv[]){
 
     // time interval calculation associated with MPI process
     time = MPI_Wtime()-time; // new time = end time - start time
-
     // taking the maximum of the individual MPI process times
     double parallel_time;
-    print_temp();
     MPI_Reduce(&time,&parallel_time,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
-
+    
     // print temp array output
     if (argc!=4) {
         print_temp();
